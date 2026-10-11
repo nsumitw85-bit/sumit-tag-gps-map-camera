@@ -19,17 +19,30 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Grant execute permission for gradlew
-      working-directory: ./android-project
-      run: chmod +x gradlew
+    - name: Set up Gradle Wrapper & Permissions
+      run: |
+        TARGET_DIR="android-project"
+        if [ ! -d "$TARGET_DIR" ]; then
+          TARGET_DIR="."
+        fi
+        cd "$TARGET_DIR"
+        if [ ! -f "gradlew" ]; then
+          gradle wrapper
+        fi
+        chmod +x gradlew
 
     - name: Build with Gradle
-      working-directory: ./android-project
-      run: ./gradlew assembleDebug
+      run: |
+        TARGET_DIR="android-project"
+        if [ ! -d "$TARGET_DIR" ]; then
+          TARGET_DIR="."
+        fi
+        cd "$TARGET_DIR"
+        ./gradlew assembleDebug --stacktrace
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: android-project/app/build/outputs/apk/debug/app-debug.apk
-
+        path: |
+          **/build/outputs/apk/debug/*.apk
