@@ -1,0 +1,9 @@
+{
+  "name": "Sumit Tag – GPS Map Camera",
+  "description": "Android GPS Camera Application for Geotagged Work Photos for sanitation and municipal fieldwork with verifiable location, dual photo storage, ward boundaries, and PDF reports.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
