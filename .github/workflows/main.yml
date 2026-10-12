@@ -1,3 +1,13 @@
+Skip to content
+sumit-tag-gps-map-camera
+Repository navigation
+Code
+Issues
+Pull requests
+Build Sumit Tag Android APK
+Update main.yml #5
+Workflow file for this run
+.github/workflows/main.yml at 8d69d83
 name: Build Sumit Tag Android APK
 
 on:
@@ -31,19 +41,16 @@ jobs:
             echo "ERROR: android-project/gradlew is missing"
             exit 1
           }
-
           test -f android-project/settings.gradle || \
           test -f android-project/settings.gradle.kts || {
             echo "ERROR: Android settings.gradle file is missing"
             exit 1
           }
-
           test -f android-project/app/build.gradle || \
           test -f android-project/app/build.gradle.kts || {
             echo "ERROR: Android app build.gradle file is missing"
             exit 1
           }
-
       - name: Set up Gradle permissions
         run: chmod +x android-project/gradlew
 
@@ -54,15 +61,12 @@ jobs:
       - name: Verify APK
         run: |
           APK_PATH="android-project/app/build/outputs/apk/debug/app-debug.apk"
-
           if [ ! -f "$APK_PATH" ]; then
             echo "ERROR: APK file was not generated"
             find android-project -type f -name "*.apk"
             exit 1
           fi
-
           ls -lh "$APK_PATH"
-
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,3 +74,16 @@ jobs:
           path: android-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+Footer
+© 2026 GitHub, Inc.
+Footer navigation
+Terms
+Privacy
+Security
+Status
+Community
+Docs
+Contact
+Manage cookies
+Do not share my personal information
+ 
