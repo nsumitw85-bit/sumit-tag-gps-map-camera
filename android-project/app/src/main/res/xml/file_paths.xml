@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Internal files directory for private stamped photo exports -->
+    <files-path name="internal_photos" path="photos/" />
+    <!-- Cache directory for temporary shares to WhatsApp -->
+    <cache-path name="shared_cache" path="shared/" />
+    <!-- External pictures directory for Pictures/Sumit Tag/ -->
+    <external-path name="external_pictures" path="Pictures/Sumit Tag/" />
+    <external-files-path name="external_files_pictures" path="Pictures/" />
+</paths>

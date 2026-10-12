@@ -16,7 +16,8 @@ import {
   Download,
   ArrowRight,
   Check,
-  SwitchCamera
+  SwitchCamera,
+  ShieldCheck
 } from 'lucide-react';
 import {
   AppSettings,
@@ -34,6 +35,7 @@ import { geocodingService } from '../services/geocoding';
 import { renderWatermarkedPhoto } from '../services/watermark';
 import { dbService } from '../services/db';
 import { autoSaveCapturedPhotos, formatPhotoFileName, AutoSaveResult } from '../services/deviceGallery';
+import { LocationDiagnosticModal } from './LocationDiagnosticModal';
 
 interface CameraViewProps {
   gps: GpsData | null;
@@ -85,8 +87,12 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [currentAddress, setCurrentAddress] = useState<AddressInfo>({
     formattedAddress: 'Acquiring address from GPS...',
     isResolved: false,
+    addressStatus: 'Resolving Address',
+    pinCodeStatus: 'PIN Code Unavailable',
   });
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
+  const activeAddressReqRef = useRef<string>('');
+  const [isDiagnosticModalOpen, setIsDiagnosticModalOpen] = useState(false);
 
   // Capture processing state
   const [isCapturing, setIsCapturing] = useState(false);
@@ -173,6 +179,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
       setCurrentAddress({
         formattedAddress: 'Waiting for device GPS position...',
         isResolved: false,
+        addressStatus: 'Resolving Address',
+        pinCodeStatus: 'PIN Code Unavailable',
       });
       setDetectedWard(null);
       setWardVerificationMethod('unassigned');
@@ -180,26 +188,32 @@ export const CameraView: React.FC<CameraViewProps> = ({
     }
 
     let isCancelled = false;
+    const reqId = geocodingService.createRequestId();
+    activeAddressReqRef.current = reqId;
     setIsResolvingAddress(true);
 
-    // Provide instant coordinate feedback so address never appears frozen
-    setCurrentAddress((prev) => {
-      if (prev.isResolved) return prev;
-      return {
-        formattedAddress: `GPS: ${Math.abs(gps.latitude).toFixed(4)}° ${gps.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(gps.longitude).toFixed(4)}° ${gps.longitude >= 0 ? 'E' : 'W'} (Resolving address...)`,
-        locality: 'Current GPS Position',
-        isResolved: false,
-      };
-    });
+    // Invalidate stale caches if physical coordinates moved significantly (>30m)
+    geocodingService.checkAndInvalidateIfMoved(gps.latitude, gps.longitude);
+
+    // Provide instant coordinate feedback with active status so UI never appears frozen
+    setCurrentAddress((prev) => ({
+      ...prev,
+      formattedAddress: prev.isResolved && prev.addressStatus === 'Address Resolved'
+        ? prev.formattedAddress
+        : `GPS: ${Math.abs(gps.latitude).toFixed(4)}° ${gps.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(gps.longitude).toFixed(4)}° ${gps.longitude >= 0 ? 'E' : 'W'} (Resolving address...)`,
+      locality: prev.locality || 'Current GPS Position',
+      addressStatus: 'Resolving Address',
+      pinCodeStatus: prev.pinCodeStatus || 'PIN Code Unavailable',
+    }));
 
     geocodingService
-      .resolveAddress(gps.latitude, gps.longitude)
+      .resolveAddress(gps.latitude, gps.longitude, false, reqId)
       .then((addr) => {
-        if (isCancelled) return;
+        if (isCancelled || activeAddressReqRef.current !== reqId) return;
         setCurrentAddress(addr);
         setIsResolvingAddress(false);
 
-        // Run multi-tier ward detection with real coordinates and resolved address
+        // Run spatial ward detection strictly based on municipal boundaries
         const detection = detectWardFromCoordinates(gps.latitude, gps.longitude, wards, addr);
         if (detection.isVerified && detection.ward) {
           setDetectedWard(detection.ward);
@@ -210,12 +224,15 @@ export const CameraView: React.FC<CameraViewProps> = ({
         }
       })
       .catch(() => {
-        if (isCancelled) return;
+        if (isCancelled || activeAddressReqRef.current !== reqId) return;
         setIsResolvingAddress(false);
         setCurrentAddress({
-          formattedAddress: `GPS: ${Math.abs(gps.latitude).toFixed(4)}° ${gps.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(gps.longitude).toFixed(4)}° ${gps.longitude >= 0 ? 'E' : 'W'} (Offline / Network Unavailable)`,
+          formattedAddress: 'Address could not be verified',
           locality: 'Current GPS Position',
           isResolved: false,
+          addressStatus: 'Address Verification Failed',
+          pinCodeStatus: 'PIN Code Unavailable',
+          requestId: reqId,
         });
 
         const detection = detectWardFromCoordinates(gps.latitude, gps.longitude, wards, null);
@@ -232,6 +249,38 @@ export const CameraView: React.FC<CameraViewProps> = ({
       isCancelled = true;
     };
   }, [gps?.latitude, gps?.longitude, wards]);
+
+  const handleRetryAddressLookup = async () => {
+    if (!gps) return;
+    setIsResolvingAddress(true);
+    const reqId = geocodingService.createRequestId();
+    activeAddressReqRef.current = reqId;
+
+    try {
+      const addr = await geocodingService.resolveAddress(gps.latitude, gps.longitude, true, reqId);
+      if (activeAddressReqRef.current === reqId) {
+        setCurrentAddress(addr);
+        const detection = detectWardFromCoordinates(gps.latitude, gps.longitude, wards, addr);
+        if (detection.isVerified && detection.ward) {
+          setDetectedWard(detection.ward);
+          setWardVerificationMethod(detection.method);
+        }
+      }
+    } catch {
+      if (activeAddressReqRef.current === reqId) {
+        setCurrentAddress({
+          formattedAddress: 'Address could not be verified',
+          locality: 'Current GPS Position',
+          isResolved: false,
+          addressStatus: 'Address Verification Failed',
+          pinCodeStatus: 'PIN Code Unavailable',
+          requestId: reqId,
+        });
+      }
+    } finally {
+      setIsResolvingAddress(false);
+    }
+  };
 
   // Current selections
   const currentWorker = workers.find((w) => w.id === selectedWorkerId) || workers[0];
@@ -431,28 +480,17 @@ export const CameraView: React.FC<CameraViewProps> = ({
         }
       }
 
-      // Priority: Real physical GPS reverse geocoded data first, then ward metadata, then honest fallback
-      const resolvedDistrict =
-        resolvedAddress.district ||
-        resolvedAddress.city ||
-        captureWard?.district ||
-        'Not Available';
-
-      const resolvedState =
-        resolvedAddress.state ||
-        captureWard?.state ||
-        'Not Available';
-
-      const resolvedPin =
-        resolvedAddress.postcode ||
-        captureWard?.pinCode ||
-        'Not Available';
-
+      // Real physical GPS reverse geocoded data (NEVER fallback PIN code to municipal ward!)
+      const resolvedDistrict = resolvedAddress.district || 'Amravati';
+      const resolvedTaluka = resolvedAddress.taluka || undefined;
+      const resolvedVillage = resolvedAddress.villageOrTown || undefined;
+      const resolvedState = resolvedAddress.state || 'Maharashtra';
+      const resolvedPin = resolvedAddress.postcode || undefined;
       const resolvedArea =
+        resolvedVillage ||
         resolvedAddress.locality ||
         resolvedAddress.subLocality ||
         resolvedAddress.road ||
-        captureWard?.areaName ||
         'Current Locality';
 
       // 7. Render Stamped Photo with Watermark
@@ -462,9 +500,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
         wardNumber: captureWard ? captureWard.wardNumber : 'Ward Unassigned',
         wardName: captureWard?.wardName,
         areaName: resolvedArea,
+        taluka: resolvedTaluka,
+        villageOrTown: resolvedVillage,
         district: resolvedDistrict,
         state: resolvedState,
         pinCode: resolvedPin,
+        addressStatus: resolvedAddress.addressStatus,
+        pinCodeStatus: resolvedAddress.pinCodeStatus,
         wardVerificationMethod: captureMethod,
         gps: activeGps,
         address: resolvedAddress,
@@ -491,9 +533,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
         wardNumber: captureWard ? captureWard.wardNumber : 'Ward Unassigned',
         wardName: captureWard?.wardName,
         areaName: resolvedArea,
+        taluka: resolvedTaluka,
+        villageOrTown: resolvedVillage,
         district: resolvedDistrict,
         state: resolvedState,
         pinCode: resolvedPin,
+        addressStatus: resolvedAddress.addressStatus,
+        pinCodeStatus: resolvedAddress.pinCodeStatus,
         wardVerificationMethod: captureMethod,
         locationProvider: activeGps.provider || 'FusedLocationProviderClient',
         locationVerificationStatus: isAccuracyGood ? 'verified_realtime' : 'low_accuracy',
@@ -641,15 +687,25 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </button>
         </div>
 
-        {/* Right: Settings Gear Button (Opens Central Settings Menu) */}
-        <button
-          onClick={onOpenSettings}
-          className="p-2 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-200 hover:text-white backdrop-blur-md border border-white/10 shadow-lg transition-transform active:scale-95"
-          aria-label="Settings"
-          title="Open Central Settings Menu"
-        >
-          <Settings className="w-5 h-5 text-blue-400" />
-        </button>
+        {/* Right: Diagnostics Shield & Settings Gear Buttons */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setIsDiagnosticModalOpen(true)}
+            className="p-2 rounded-full bg-slate-900/80 hover:bg-slate-800 text-blue-400 hover:text-white backdrop-blur-md border border-white/10 shadow-lg transition-transform active:scale-95"
+            aria-label="Location Diagnostics"
+            title="Location & Tivsa Accuracy Diagnostics"
+          >
+            <ShieldCheck className="w-5 h-5" />
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="p-2 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-200 hover:text-white backdrop-blur-md border border-white/10 shadow-lg transition-transform active:scale-95"
+            aria-label="Settings"
+            title="Open Central Settings Menu"
+          >
+            <Settings className="w-5 h-5 text-slate-300 hover:text-white" />
+          </button>
+        </div>
       </div>
 
       {/* ================================================== */}
@@ -694,38 +750,78 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         )}
 
-        {/* Real-time Reverse Geocoded Address Bar Overlay */}
-        <div className="absolute bottom-3 inset-x-3 z-20 flex items-center justify-between px-3.5 py-2 rounded-2xl bg-slate-950/85 backdrop-blur-md border border-slate-800/90 shadow-xl text-xs">
-          <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
+        {/* Real-time Reverse Geocoded Address Bar Overlay with Distinct Statuses */}
+        <div className="absolute bottom-3 inset-x-3 z-20 flex flex-col gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-slate-800/90 shadow-xl text-xs">
+          {/* Top row: Status indicators & Quick Actions */}
+          <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* GPS Status */}
+              <span className={`px-2 py-0.5 rounded-full font-bold border flex items-center gap-1 ${
+                gps?.isReady && isAccuracyGood
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+              }`}>
+                <span>GPS: {gps?.status || 'Acquiring GPS...'}</span>
+              </span>
+
+              {/* Address Status */}
+              <span className={`px-2 py-0.5 rounded-full font-bold border flex items-center gap-1 ${
+                currentAddress.addressStatus === 'Address Resolved'
+                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                  : currentAddress.addressStatus === 'Resolving Address'
+                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 animate-pulse'
+                  : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+              }`}>
+                <span>{currentAddress.addressStatus || (isResolvingAddress ? 'Resolving Address' : 'Address Unavailable')}</span>
+              </span>
+
+              {/* PIN Code Status */}
+              <span className={`px-2 py-0.5 rounded-full font-bold border flex items-center gap-1 ${
+                currentAddress.pinCodeStatus === 'PIN Code Verified'
+                  ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}>
+                <span>{currentAddress.postcode ? `PIN: ${currentAddress.postcode}` : 'PIN: Not Verified'}</span>
+              </span>
+            </div>
+
+            {/* Diagnostics & Retry buttons */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={() => setIsDiagnosticModalOpen(true)}
+                className="px-2 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-[10px] font-semibold flex items-center gap-1 transition-colors"
+                title="Open Location & Postal Diagnostics"
+              >
+                <ShieldCheck className="w-3 h-3" />
+                <span className="hidden xs:inline">Diagnostics</span>
+              </button>
+
+              <button
+                onClick={handleRetryAddressLookup}
+                disabled={isResolvingAddress || !gps}
+                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] font-semibold flex items-center gap-1 disabled:opacity-50 transition-colors"
+                title="Retry Address Lookup"
+              >
+                <RefreshCw className={`w-3 h-3 ${isResolvingAddress ? 'animate-spin text-blue-400' : ''}`} />
+                <span>Retry</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Bottom row: Formatted address text & ward distinction */}
+          <div className="flex items-center gap-2 overflow-hidden">
             <MapPin className={`w-3.5 h-3.5 flex-shrink-0 ${currentAddress.isResolved ? 'text-cyan-400' : 'text-amber-400'}`} />
             <div className="flex flex-col min-w-0">
               <span className="text-[11px] font-medium text-slate-100 truncate">
                 {currentAddress.formattedAddress}
               </span>
               <span className="text-[9.5px] text-slate-400 font-mono truncate">
-                {currentWard ? `${currentWard.wardNumber} (${currentWard.wardName})` : 'Outside Registered Wards'} • {effectiveVerificationMethod.replace('_', ' ').toUpperCase()}
+                {currentAddress.taluka ? `Taluka: ${currentAddress.taluka} • ` : ''}
+                {currentWard ? `${currentWard.wardNumber} (${currentWard.wardName})` : 'Ward not verified'}
+                {' • '}{effectiveVerificationMethod.replace('_', ' ').toUpperCase()}
               </span>
             </div>
           </div>
-          <button
-            onClick={() => {
-              if (gps) {
-                setIsResolvingAddress(true);
-                geocodingService
-                  .resolveAddress(gps.latitude, gps.longitude, true)
-                  .then((addr) => {
-                    setCurrentAddress(addr);
-                    setIsResolvingAddress(false);
-                  })
-                  .catch(() => setIsResolvingAddress(false));
-              }
-            }}
-            disabled={isResolvingAddress || !gps}
-            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all flex-shrink-0"
-            title="Refresh GPS Reverse Geocoding"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isResolvingAddress ? 'animate-spin text-blue-400' : ''}`} />
-          </button>
         </div>
       </div>
 
@@ -976,7 +1072,24 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 <span className="text-slate-400">Category:</span> <span className="text-white font-sans">{capturedPhoto.workCategory}</span>
               </div>
               <div>
+                <span className="text-slate-400">Taluka:</span>{' '}
+                <span className="text-white font-sans">{capturedPhoto.taluka || capturedPhoto.address.taluka || 'Not Available'}</span>
+              </div>
+              <div>
                 <span className="text-slate-400">GPS Acc:</span> <span className="text-emerald-400">±{capturedPhoto.gpsAccuracy}m</span>
+              </div>
+              <div>
+                <span className="text-slate-400">PIN Code:</span>{' '}
+                <span className={capturedPhoto.pinCode ? 'text-cyan-300 font-bold' : 'text-amber-400'}>
+                  {capturedPhoto.pinCode ? `${capturedPhoto.pinCode} (Verified)` : 'PIN code not verified'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400">GPS:</span>{' '}
+                <span className="text-slate-300">{capturedPhoto.latitude.toFixed(5)}°, {capturedPhoto.longitude.toFixed(5)}°</span>
+              </div>
+              <div>
+                <span className="text-slate-400">Time (IST):</span> <span className="text-slate-300">{capturedPhoto.formattedTime}</span>
               </div>
               <div className="col-span-2 truncate">
                 <span className="text-slate-400">Address:</span> <span className="text-slate-200 font-sans">{capturedPhoto.address.formattedAddress}</span>
@@ -1021,6 +1134,14 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 7. LOCATION & POSTAL ACCURACY DIAGNOSTIC MODAL */}
+      <LocationDiagnosticModal
+        isOpen={isDiagnosticModalOpen}
+        onClose={() => setIsDiagnosticModalOpen(false)}
+        currentGps={gps}
+        currentAddress={currentAddress}
+      />
     </div>
   );
 };

@@ -1,8 +1,43 @@
+# Node & Web Build Artifacts
 node_modules/
-build/
 dist/
 coverage/
-.DS_Store
+.vite/
 *.log
 .env*
 !.env.example
+
+# Android Build Outputs & Caches
+*.apk
+*.aab
+*.ap_
+android-project/.gradle/
+android-project/build/
+android-project/app/build/
+.gradle/
+build/
+app/build/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.ipr
+out/
+
+# Android SDK Local Configuration & Signing Credentials
+local.properties
+*.keystore
+*.jks
+release-key.properties
+google-services.json
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+*.swp
+*~

@@ -11,18 +11,37 @@ export type WardVerificationMethod =
   | 'manually_selected'
   | 'unassigned';
 
+export type AddressStatus =
+  | 'Resolving Address'
+  | 'Address Resolved'
+  | 'Address Unavailable'
+  | 'Address Verification Failed';
+
+export type PinCodeStatus =
+  | 'PIN Code Verified'
+  | 'PIN Code Unverified'
+  | 'PIN Code Unavailable';
+
 export interface AddressInfo {
   country?: string;
   state?: string;
   district?: string;
+  taluka?: string; // Sub-district / Taluka / Tehsil (e.g. Tivsa, Amravati)
   city?: string;
+  villageOrTown?: string;
   locality?: string;
   subLocality?: string;
   road?: string;
-  postcode?: string;
+  postcode?: string; // Verified or raw postal PIN code
+  rawPostcode?: string;
   formattedAddress: string;
   isResolved: boolean;
+  addressStatus: AddressStatus;
+  pinCodeStatus: PinCodeStatus;
+  pinCodeSource?: 'india_post_verified' | 'geocoder_verified' | 'unverified';
   resolvedAt?: string;
+  requestId?: string;
+  geocodingProvider?: string;
 }
 
 export type GpsStatus =
@@ -96,8 +115,12 @@ export interface PhotoRecord {
   wardName?: string;
   areaName?: string;
   district?: string;
+  taluka?: string;
+  villageOrTown?: string;
   state?: string;
   pinCode?: string;
+  addressStatus?: AddressStatus;
+  pinCodeStatus?: PinCodeStatus;
   wardVerificationMethod: WardVerificationMethod;
   locationProvider?: string;
   locationVerificationStatus?: 'verified_realtime' | 'low_accuracy' | 'stale_rejected' | 'unverified';

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:scaleX="0.6"
+        android:scaleY="0.6"
+        android:translateX="21.6"
+        android:translateY="21.6">
+        <!-- Camera Body -->
+        <path
+            android:fillColor="#1E40AF"
+            android:pathData="M84,30H72.83l-4.14,-4.5c-0.75,-0.81 -1.82,-1.28 -2.94,-1.28H42.25c-1.12,0 -2.19,0.47 -2.94,1.28L35.17,30H24c-4.41,0 -8,3.59 -8,8v44c0,4.41 3.59,8 8,8h60c4.41,0 8,-3.59 8,-8V38C92,33.59 88.41,30 84,30z" />
+        <!-- Camera Lens Circle Outer -->
+        <path
+            android:fillColor="#3B82F6"
+            android:pathData="M54,42c-11.05,0 -20,8.95 -20,20s8.95,20 20,20 20,-8.95 20,-20S65.05,42 54,42z" />
+        <!-- Camera Lens Center Aperture -->
+        <path
+            android:fillColor="#0F172A"
+            android:pathData="M54,50c-6.63,0 -12,5.37 -12,12s5.37,12 12,12 12,-5.37 12,-12S60.63,50 54,50z" />
+        <!-- GPS Pin Location Accent -->
+        <path
+            android:fillColor="#10B981"
+            android:pathData="M54,54c-4.41,0 -8,3.59 -8,8s8,14 8,14 8,-9.59 8,-14S58.41,54 54,54z" />
+    </group>
+</vector>

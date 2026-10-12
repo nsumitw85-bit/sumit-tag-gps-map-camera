@@ -150,4 +150,17 @@ object MediaStoreGallerySaver {
             }
         }
     }
+
+    /**
+     * Updates gallery scan indices for a given file path
+     */
+    fun scanMediaFile(context: Context, path: String) {
+        MediaScannerConnection.scanFile(
+            context,
+            arrayOf(path),
+            arrayOf(MIME_TYPE_JPEG),
+            null
+        )
+    }
 }
+

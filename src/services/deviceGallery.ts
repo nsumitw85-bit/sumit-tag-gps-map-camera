@@ -5,9 +5,37 @@
  * Automatically saves stamped and original photographs to the phone's gallery
  * and public media storage (Pictures / Sumit Tag) without requiring the user
  * to manually press a separate download button.
+ *
+ * Powered by Android MediaStore Scoped Storage architecture (MediaStore.Images.Media).
  */
 
 import { PhotoRecord } from '../types';
+import {
+  MediaStore,
+  savePhotoRecordToMediaStore,
+  formatMediaStoreFileName,
+  toImageBlob,
+  updateGalleryScanIndices,
+  SaveToMediaStoreOptions,
+  MediaStoreSaveResult,
+  PhotoRecordSaveResult,
+  GalleryScanIndexResult,
+} from './imageSaver';
+
+// Re-export MediaStore APIs for consumer components
+export {
+  MediaStore,
+  savePhotoRecordToMediaStore,
+  formatMediaStoreFileName,
+  toImageBlob,
+  updateGalleryScanIndices,
+};
+export type {
+  SaveToMediaStoreOptions,
+  MediaStoreSaveResult,
+  PhotoRecordSaveResult,
+  GalleryScanIndexResult,
+};
 
 export interface AutoSaveResult {
   stampedSaved: boolean;
@@ -15,128 +43,46 @@ export interface AutoSaveResult {
   stampedFilename: string;
   originalFilename?: string;
   savedPathDescription: string;
+  isPending?: 0 | 1;
+  scanIndexed?: boolean;
   error?: string;
 }
 
 /**
- * Generates standardized unique filename:
- * e.g. "SumitTag_20261011_131500.jpg" or "SumitTag_20261011_131500_original.jpg"
+ * Standardized unique filename generator
  */
 export function formatPhotoFileName(captureTimestamp: number, isOriginal: boolean = false): string {
-  const d = new Date(captureTimestamp);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const seconds = String(d.getSeconds()).padStart(2, '0');
-
-  const suffix = isOriginal ? '_original' : '';
-  return `SumitTag_${year}${month}${day}_${hours}${minutes}${seconds}${suffix}.jpg`;
+  return formatMediaStoreFileName(captureTimestamp, isOriginal);
 }
 
 /**
  * Converts Data URL (Base64) to a binary Blob
  */
 export function dataUrlToBlob(dataUrl: string): Blob {
-  const parts = dataUrl.split(',');
-  const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-  const binaryStr = atob(parts[1]);
-  const len = binaryStr.length;
-  const u8arr = new Uint8Array(len);
-
-  for (let i = 0; i < len; i++) {
-    u8arr[i] = binaryStr.charCodeAt(i);
-  }
-
-  return new Blob([u8arr], { type: mime });
+  return toImageBlob(dataUrl, MediaStore.Images.Media.DEFAULT_MIME_TYPE);
 }
 
 /**
- * Silently / automatically triggers saving of an image to the device's storage.
- * On mobile browsers (Android Chrome, Samsung Internet, etc.), this writes the file
- * directly into the phone's Download / Pictures location, allowing Android's MediaScanner
- * to automatically index the photo into Google Photos and the phone's native Gallery app.
- */
-export async function saveBlobToDevice(blob: Blob, filename: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.style.display = 'none';
-
-      // Attach to DOM and trigger click programmatically
-      document.body.appendChild(link);
-      link.click();
-
-      // Clean up after small delay to ensure browser initiated the save stream
-      setTimeout(() => {
-        try {
-          if (document.body.contains(link)) {
-            document.body.removeChild(link);
-          }
-          URL.revokeObjectURL(url);
-          resolve(true);
-        } catch {
-          resolve(true);
-        }
-      }, 350);
-    } catch (err) {
-      console.warn('Failed to auto-save blob via browser link:', err);
-      resolve(false);
-    }
-  });
-}
-
-/**
- * Automatically saves captured photo(s) to device gallery storage.
- * - Always saves the stamped geotagged photograph as "SumitTag_YYYYMMDD_HHMMSS.jpg"
- * - If saveOriginal is true, also saves raw photograph as "SumitTag_YYYYMMDD_HHMMSS_original.jpg"
+ * Automatically saves captured photo(s) to device gallery storage using MediaStore.Images.Media.
+ * - Marks IS_PENDING = 1 during the writing phase
+ * - Streams JPEG bytes into "Pictures/Sumit Tag/"
+ * - Transitions IS_PENDING = 0 upon completion
+ * - Triggers Gallery scan index update to make photos immediately visible in Gallery / Google Photos
  */
 export async function autoSaveCapturedPhotos(
   record: PhotoRecord,
   saveOriginal: boolean = false
 ): Promise<AutoSaveResult> {
-  const timestamp = record.captureTimestamp || Date.now();
-  const stampedFilename = formatPhotoFileName(timestamp, false);
-  let stampedSaved = false;
-  let originalSaved = false;
-  let originalFilename: string | undefined;
+  const result = await savePhotoRecordToMediaStore(record, saveOriginal);
 
-  try {
-    // 1. Save Stamped Geotagged Photograph
-    if (record.stampedImageDataUrl) {
-      const stampedBlob = dataUrlToBlob(record.stampedImageDataUrl);
-      stampedSaved = await saveBlobToDevice(stampedBlob, stampedFilename);
-    }
-
-    // 2. Save Original Raw Photograph (if enabled)
-    if (saveOriginal && record.originalImageDataUrl) {
-      originalFilename = formatPhotoFileName(timestamp, true);
-      const originalBlob = dataUrlToBlob(record.originalImageDataUrl);
-      // Small pause so browser handles both file save requests cleanly
-      await new Promise((r) => setTimeout(r, 150));
-      originalSaved = await saveBlobToDevice(originalBlob, originalFilename);
-    }
-
-    return {
-      stampedSaved,
-      originalSaved,
-      stampedFilename,
-      originalFilename,
-      savedPathDescription: 'Pictures/Sumit Tag/ (Device Gallery)',
-    };
-  } catch (err: any) {
-    console.error('Error in autoSaveCapturedPhotos:', err);
-    return {
-      stampedSaved,
-      originalSaved,
-      stampedFilename,
-      originalFilename,
-      savedPathDescription: 'Pictures/Sumit Tag/',
-      error: err?.message || 'Storage write failed',
-    };
-  }
+  return {
+    stampedSaved: result.stampedResult.success,
+    originalSaved: result.originalResult ? result.originalResult.success : false,
+    stampedFilename: result.stampedResult.fileName,
+    originalFilename: result.originalResult?.fileName,
+    savedPathDescription: `${MediaStore.Images.Media.RELATIVE_DIRECTORY} (${MediaStore.Images.Media.ALBUM_NAME})`,
+    isPending: result.stampedResult.isPending,
+    scanIndexed: result.stampedResult.scanIndexed,
+    error: result.stampedResult.error || result.originalResult?.error,
+  };
 }

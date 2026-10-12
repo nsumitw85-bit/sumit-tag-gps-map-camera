@@ -11,7 +11,9 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
+import kotlin.coroutines.resume
 
 data class LocationFix(
     val latitude: Double,
@@ -94,11 +96,19 @@ class GpsLocationProvider(private val context: Context) {
         val geocoder = Geocoder(context, Locale.getDefault())
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                var resolved: ResolvedAddress? = null
-                geocoder.getFromLocation(latitude, longitude, 1) { addresses ->
-                    resolved = parseAddress(addresses.firstOrNull())
+                suspendCancellableCoroutine { cont ->
+                    try {
+                        geocoder.getFromLocation(latitude, longitude, 1) { addresses ->
+                            if (cont.isActive) {
+                                cont.resume(parseAddress(addresses.firstOrNull()))
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (cont.isActive) {
+                            cont.resume(null)
+                        }
+                    }
                 }
-                resolved
             } else {
                 @Suppress("DEPRECATION")
                 val list = geocoder.getFromLocation(latitude, longitude, 1)

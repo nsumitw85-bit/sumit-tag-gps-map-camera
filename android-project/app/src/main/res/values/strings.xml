@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sumit Tag</string>
+    <string name="app_full_name">Sumit Tag – GPS Map Camera</string>
+    <string name="app_description">Municipal Sanitation Geotagged Field Camera &amp; Reporting System</string>
+    <string name="camera_permission_required">Camera permission is required to capture geotagged municipal photographs.</string>
+    <string name="location_permission_required">Location permission is required to acquire GPS coordinates and ward verification.</string>
+    <string name="storage_album_name">Sumit Tag</string>
+</resources>

@@ -88,8 +88,22 @@ export default function App() {
 
     loadData();
 
+    // Listen for MediaStore gallery scan index updates to synchronize in-app Gallery
+    const handleGalleryScanned = async () => {
+      try {
+        const latestPhotos = await dbService.getAllPhotos();
+        if (mounted) {
+          setPhotos(latestPhotos);
+        }
+      } catch (err) {
+        console.warn('Failed to refresh photos upon MediaStore scan:', err);
+      }
+    };
+    window.addEventListener('mediastore:gallery_scanned', handleGalleryScanned);
+
     return () => {
       mounted = false;
+      window.removeEventListener('mediastore:gallery_scanned', handleGalleryScanned);
     };
   }, []);
 

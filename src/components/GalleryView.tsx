@@ -880,6 +880,16 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
                   <span className="text-white font-mono">{selectedPhoto.formattedDate} {selectedPhoto.formattedTime}</span>
                 </div>
                 <div>
+                  <span className="text-slate-400 font-medium">Taluka:</span>{' '}
+                  <span className="text-white font-semibold">{selectedPhoto.taluka || selectedPhoto.address?.taluka || 'Not Available'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-medium">PIN Code:</span>{' '}
+                  <span className={selectedPhoto.pinCode ? 'text-cyan-300 font-bold' : 'text-amber-400'}>
+                    {selectedPhoto.pinCode ? `${selectedPhoto.pinCode} [${selectedPhoto.pinCodeStatus === 'PIN Code Verified' ? 'Verified' : 'Unverified'}]` : 'PIN code not verified'}
+                  </span>
+                </div>
+                <div>
                   <span className="text-slate-400 font-medium">GPS Coordinates:</span>{' '}
                   <span className="text-emerald-400 font-mono font-bold">
                     {formatCoordinates(selectedPhoto.latitude, selectedPhoto.longitude).fullStr}
@@ -892,9 +902,17 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
                     <span className="text-slate-400 font-mono ml-2">Alt: {selectedPhoto.altitude}m</span>
                   )}
                 </div>
+                <div>
+                  <span className="text-slate-400 font-medium">Address Status:</span>{' '}
+                  <span className="text-blue-300 font-mono">{selectedPhoto.addressStatus || selectedPhoto.address?.addressStatus || 'Address Resolved'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-medium">PIN Status:</span>{' '}
+                  <span className="text-cyan-300 font-mono">{selectedPhoto.pinCodeStatus || selectedPhoto.address?.pinCodeStatus || 'PIN Code Unverified'}</span>
+                </div>
                 <div className="col-span-1 sm:col-span-2">
                   <span className="text-slate-400 font-medium">Address:</span>{' '}
-                  <span className="text-slate-200">{selectedPhoto.address?.formattedAddress || 'Not Available'}</span>
+                  <span className="text-slate-200">{selectedPhoto.address?.formattedAddress || 'Address could not be verified'}</span>
                 </div>
                 {selectedPhoto.notes && (
                   <div className="col-span-1 sm:col-span-2">

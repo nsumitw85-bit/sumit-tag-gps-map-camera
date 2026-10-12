@@ -664,14 +664,14 @@ export function detectWardFromCoordinates(
     }
   }
 
-  // Tier 2: Proximity to Ward Reference Center
+  // Tier 2: Proximity to Registered Municipal Ward Center
   let closestWard: Ward | null = null;
   let minDistance = Infinity;
 
   for (const ward of wards) {
     if (typeof ward.centerLat === 'number' && typeof ward.centerLng === 'number') {
       const dist = calculateHaversineDistance(lat, lng, ward.centerLat, ward.centerLng);
-      const maxRadius = ward.radiusMeters || 2000;
+      const maxRadius = ward.radiusMeters || 1500;
       if (dist <= maxRadius && dist < minDistance) {
         minDistance = dist;
         closestWard = ward;
@@ -689,57 +689,12 @@ export function detectWardFromCoordinates(
     };
   }
 
-  // Tier 3: Locality & Postal Code Metadata Match
-  if (geocodedAddress) {
-    const cleanPin = geocodedAddress.postcode ? geocodedAddress.postcode.replace(/\D/g, '') : '';
-    const locText = [
-      geocodedAddress.locality,
-      geocodedAddress.subLocality,
-      geocodedAddress.road,
-      geocodedAddress.formattedAddress,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-
-    for (const ward of wards) {
-      // 3A. PIN Code matching (with sanity check against city/district)
-      const wardPin = ward.pinCode ? ward.pinCode.replace(/\D/g, '') : '';
-      const pins = (ward.pinCodes || []).map((p) => p.replace(/\D/g, ''));
-      if (cleanPin && (cleanPin === wardPin || pins.includes(cleanPin))) {
-        const addrCity = (geocodedAddress.district || geocodedAddress.city || '').toLowerCase();
-        const wardCity = (ward.district || '').toLowerCase();
-        if (!addrCity || !wardCity || addrCity.includes(wardCity) || wardCity.includes(addrCity)) {
-          return {
-            ward,
-            isVerified: true,
-            method: 'locality_matched',
-            matchedReason: `Matched PIN code ${cleanPin} to ${ward.wardNumber}`,
-          };
-        }
-      }
-
-      // 3B. Locality / Area Keywords matching
-      if (ward.localityKeywords && ward.localityKeywords.length > 0) {
-        for (const kw of ward.localityKeywords) {
-          if (kw && kw.length > 2 && locText.includes(kw.toLowerCase())) {
-            return {
-              ward,
-              isVerified: true,
-              method: 'locality_matched',
-              matchedReason: `Matched locality keyword "${kw}" to ${ward.wardNumber}`,
-            };
-          }
-        }
-      }
-    }
-  }
-
-  // Tier 4: No Match - OUTSIDE REGISTERED WARDS
+  // Tier 3: No spatial boundary match - Official Municipal Ward Not Verified
+  // Note: Postal PIN codes NEVER determine a municipal ward
   return {
     ward: null,
     isVerified: false,
     method: 'unassigned',
-    matchedReason: 'Location outside registered municipal ward boundaries',
+    matchedReason: 'Ward not verified (outside registered municipal ward boundaries)',
   };
 }

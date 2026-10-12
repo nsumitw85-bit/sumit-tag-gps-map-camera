@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 export const AndroidCodeModal: React.FC = () => {
-  const [activeFileTab, setActiveFileTab] = useState<'manifest' | 'gradle' | 'main' | 'camerax' | 'gps' | 'watermark' | 'database' | 'readme'>('readme');
+  const [activeFileTab, setActiveFileTab] = useState<'manifest' | 'gradle' | 'main' | 'camerax' | 'gps' | 'watermark' | 'database' | 'mediastore' | 'readme'>('readme');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const copyCode = (text: string, key: string) => {
@@ -435,6 +435,86 @@ abstract class AppDatabase : RoomDatabase() {
         fun getInstance(ctx: Context) = Room.databaseBuilder(ctx, AppDatabase::class.java, "sumit_tag.db").build()
     }
 }`,
+
+    mediastore: `package com.sumittag.gpsmapcamera.storage
+
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import java.text.SimpleDateFormat
+import java.util.*
+
+/**
+ * Android MediaStore.Images.Media Gallery Saver
+ *
+ * Saves photographs directly to the "Pictures/Sumit Tag/" album.
+ * Enforces IS_PENDING = 1 transitions during writes and calls
+ * MediaScannerConnection to update device Gallery scan indices.
+ */
+object MediaStoreGallerySaver {
+    const val ALBUM_NAME = "Sumit Tag"
+    const val RELATIVE_PATH = "Pictures/Sumit Tag/"
+    const val MIME_TYPE_JPEG = "image/jpeg"
+
+    fun formatFileName(captureTimeMs: Long, isOriginal: Boolean = false): String {
+        val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+        val timeString = sdf.format(Date(captureTimeMs))
+        val suffix = if (isOriginal) "_original" else ""
+        return "SumitTag_\${timeString}\${suffix}.jpg"
+    }
+
+    fun saveBitmapToGallery(
+        context: Context,
+        bitmap: Bitmap,
+        captureTimeMs: Long = System.currentTimeMillis(),
+        isOriginal: Boolean = false
+    ): Uri? {
+        val fileName = formatFileName(captureTimeMs, isOriginal)
+        val resolver = context.contentResolver
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, MIME_TYPE_JPEG)
+                put(MediaStore.Images.Media.RELATIVE_PATH, RELATIVE_PATH)
+                put(MediaStore.Images.Media.DATE_ADDED, captureTimeMs / 1000)
+                put(MediaStore.Images.Media.DATE_TAKEN, captureTimeMs)
+                // 1. Mark as pending during write to prevent corrupted reads
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+
+            val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues) ?: return null
+            try {
+                resolver.openOutputStream(imageUri)?.use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                }
+
+                // 2. Mark IS_PENDING = 0 when write completes successfully
+                contentValues.clear()
+                contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(imageUri, contentValues, null, null)
+
+                // 3. Update device Gallery scan indices
+                scanMediaFile(context, imageUri.toString())
+                return imageUri
+            } catch (e: Exception) {
+                resolver.delete(imageUri, null, null)
+                return null
+            }
+        } else {
+            // Legacy Storage (API <= 28) with MediaScannerConnection
+            ...
+        }
+    }
+
+    fun scanMediaFile(context: Context, path: String) {
+        MediaScannerConnection.scanFile(context, arrayOf(path), arrayOf(MIME_TYPE_JPEG), null)
+    }
+}`,
   };
 
   return (
@@ -484,6 +564,7 @@ abstract class AppDatabase : RoomDatabase() {
             { id: 'gps', label: 'GpsLocationProvider.kt', icon: <FileCode className="w-3.5 h-3.5" /> },
             { id: 'watermark', label: 'WatermarkBitmapRenderer.kt', icon: <FileCode className="w-3.5 h-3.5" /> },
             { id: 'database', label: 'AppDatabase.kt', icon: <FileCode className="w-3.5 h-3.5" /> },
+            { id: 'mediastore', label: 'MediaStoreGallerySaver.kt', icon: <FileCode className="w-3.5 h-3.5" /> },
           ].map((tab) => (
             <button
               key={tab.id}

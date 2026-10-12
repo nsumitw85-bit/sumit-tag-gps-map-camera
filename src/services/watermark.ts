@@ -7,9 +7,13 @@ export interface WatermarkRenderOptions {
   wardNumber: string;
   wardName?: string;
   areaName?: string;
+  taluka?: string;
+  villageOrTown?: string;
   district?: string;
   state?: string;
   pinCode?: string;
+  addressStatus?: string;
+  pinCodeStatus?: string;
   wardVerificationMethod: WardVerificationMethod;
   gps: GpsData;
   address: AddressInfo;
@@ -83,24 +87,35 @@ export async function renderWatermarkedPhoto(
         const { latStr, lngStr } = formatCoordinates(options.gps.latitude, options.gps.longitude);
         const accuracyStr = `${Math.round(options.gps.accuracy)} METERS`;
 
-        // Resolve District, State, PIN, Locality dynamically from real physical GPS location
+        // Resolve District, State, Taluka, PIN, Locality dynamically from real physical GPS location
         const resolvedDistrict =
           options.address.district ||
           options.address.city ||
           options.district ||
           'Not Available';
 
+        const resolvedTaluka =
+          options.address.taluka ||
+          options.taluka ||
+          undefined;
+
+        const resolvedVillage =
+          options.address.villageOrTown ||
+          options.villageOrTown ||
+          undefined;
+
         const resolvedState =
           options.address.state ||
           options.state ||
           'Not Available';
 
-        const resolvedPin =
-          options.address.postcode ||
-          options.pinCode ||
-          'Not Available';
+        // Strictest PIN handling: Only show PIN if actually verified from real coordinates!
+        const resolvedPin = options.address.postcode || undefined;
+        const pinStatus = options.address.pinCodeStatus || (resolvedPin ? 'PIN Code Verified' : 'PIN Code Unverified');
+        const addrStatus = options.address.addressStatus || (options.address.isResolved ? 'Address Resolved' : 'Address Unavailable');
 
         const resolvedArea =
+          resolvedVillage ||
           options.address.locality ||
           options.address.subLocality ||
           options.address.road ||
@@ -115,8 +130,23 @@ export async function renderWatermarkedPhoto(
           cleanWardNumber = cleanWardNumber.replace(/^Ward\s*/i, '');
         }
 
-        // Calculate overlay height
-        const overlayHeight = Math.max(240 * scale, lineHeight * 8.5 + padY * 2);
+        // Ward display with official verification distinction
+        let wardDisplay = 'Ward not verified';
+        if (options.wardVerificationMethod === 'boundary_verified') {
+          wardDisplay = `Ward ${cleanWardNumber} (Verified Boundary)`;
+        } else if (options.wardVerificationMethod === 'proximity_verified') {
+          wardDisplay = `Ward ${cleanWardNumber} (Proximity Verified)`;
+        } else if (options.wardVerificationMethod === 'manually_selected') {
+          wardDisplay = `Ward ${cleanWardNumber} [Manually Selected]`;
+        }
+
+        // PIN display with verification status
+        const pinDisplay = resolvedPin
+          ? `${resolvedPin} [${pinStatus === 'PIN Code Verified' ? 'Verified' : 'Unverified'}]`
+          : 'PIN code not verified';
+
+        // Calculate overlay height to fit all verified fieldwork lines
+        const overlayHeight = Math.max(270 * scale, lineHeight * 10 + padY * 2);
         const overlayY = options.position === 'top' ? 0 : height - overlayHeight;
 
         ctx.save();
@@ -173,13 +203,8 @@ export async function renderWatermarkedPhoto(
           pillBg = 'rgba(16, 185, 129, 0.25)';
           pillBorder = '#10b981';
           pillTextColor = '#34d399';
-        } else if (options.wardVerificationMethod === 'locality_matched') {
-          verifyText = '✓ LOCALITY MATCHED';
-          pillBg = 'rgba(59, 130, 246, 0.25)';
-          pillBorder = '#3b82f6';
-          pillTextColor = '#60a5fa';
         } else if (options.wardVerificationMethod === 'unassigned') {
-          verifyText = '⚠ OUTSIDE WARDS';
+          verifyText = '⚠ WARD NOT VERIFIED';
           pillBg = 'rgba(239, 68, 68, 0.25)';
           pillBorder = '#ef4444';
           pillTextColor = '#fca5a5';
@@ -233,11 +258,16 @@ export async function renderWatermarkedPhoto(
 
         if (options.showWardNumber !== false) {
           y1 += lineHeight;
-          drawAsciiLabelValue(ctx, 'WARD:', cleanWardNumber, col1X, y1, baseFontPx);
+          drawAsciiLabelValue(ctx, 'WARD:', wardDisplay, col1X, y1, baseFontPx);
         }
 
         y1 += lineHeight;
         drawAsciiLabelValue(ctx, 'AREA:', resolvedArea, col1X, y1, baseFontPx);
+
+        if (resolvedTaluka) {
+          y1 += lineHeight;
+          drawAsciiLabelValue(ctx, 'TALUKA:', resolvedTaluka, col1X, y1, baseFontPx);
+        }
 
         if (options.showAddress !== false) {
           y1 += lineHeight;
@@ -248,7 +278,7 @@ export async function renderWatermarkedPhoto(
 
         if (options.showPinCode !== false) {
           y1 += lineHeight;
-          drawAsciiLabelValue(ctx, 'PIN CODE:', resolvedPin, col1X, y1, baseFontPx);
+          drawAsciiLabelValue(ctx, 'PIN CODE:', pinDisplay, col1X, y1, baseFontPx);
         }
 
         // Column 2 (Middle/Right):
@@ -269,11 +299,17 @@ export async function renderWatermarkedPhoto(
           y2 += lineHeight;
         }
 
+        // Status indicators
+        drawAsciiLabelValue(ctx, 'ADDR STATUS:', addrStatus, col2X, y2, baseFontPx);
+        y2 += lineHeight;
+        drawAsciiLabelValue(ctx, 'PIN STATUS:', pinStatus, col2X, y2, baseFontPx);
+        y2 += lineHeight;
+
         // Address snippet below
         if (options.showAddress !== false) {
           let displayAddr = options.address.formattedAddress;
-          if (!displayAddr || displayAddr === 'Acquiring address from GPS...') {
-            displayAddr = `GPS: ${Math.abs(options.gps.latitude).toFixed(5)}° ${options.gps.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(options.gps.longitude).toFixed(5)}° ${options.gps.longitude >= 0 ? 'E' : 'W'}`;
+          if (!displayAddr || displayAddr === 'Acquiring address from GPS...' || displayAddr.startsWith('Waiting')) {
+            displayAddr = 'Address could not be verified';
           }
           drawAsciiLabelValue(ctx, 'ADDR:', truncateText(ctx, displayAddr, availableW * 0.44), col2X, y2, baseFontPx);
         }
